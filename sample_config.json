@@ -1,0 +1,8 @@
+{
+  "api_token": "my_token",
+  "base": "my_base",
+  "table": "my_table",
+  "max_batch_size": 10,
+  "endpoint": "https://api.airtable.com/v0",
+  "typecast": true
+}
