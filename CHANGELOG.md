@@ -1,5 +1,9 @@
 # Change Log
 
+## v1.2.1
+
+* Allow output (flattened) stream schema to file
+
 ## v1.2.0
 
 * Bumped up version to publish package

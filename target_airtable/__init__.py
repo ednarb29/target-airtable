@@ -5,6 +5,7 @@ import collections
 import http.client
 import io
 import json
+import os.path
 import sys
 import threading
 import urllib
@@ -84,6 +85,7 @@ def persist_lines(config, lines):
 
     # collect records for batch upload
     records_bulk = dict()
+    records_schema = set()
 
     # Loop over lines from stdin
     for line in lines:
@@ -115,9 +117,15 @@ def persist_lines(config, lines):
             # If the record needs to be flattened, uncomment this line
             flattened_record = flatten(o['record'])
 
-            records_bulk[o['stream']].append({
-                "fields": flattened_record
-            })
+            if config.get("output_schema", False):
+                # store flattened schema
+                for k in flattened_record.keys():
+                    records_schema.add(k)
+            else:
+                # capture record
+                records_bulk[o['stream']].append({
+                    "fields": flattened_record
+                })
 
             state = None
         elif t == 'STATE':
@@ -136,9 +144,14 @@ def persist_lines(config, lines):
             raise Exception("Unknown message type {} in message {}"
                             .format(o['type'], o))
 
-    # process all collected entries
-    for table, records in records_bulk.items():
-        process_records(config, table, records)
+    if config.get("output_schema", False):
+        # write produced schema to file
+        with open(os.path.join(config.get("output_schema_path", ""), "output_schema.txt"), "w") as f:
+            f.write(str(records_schema))
+    else:
+        # process all collected entries
+        for table, records in records_bulk.items():
+            process_records(config, table, records)
 
     return state
 

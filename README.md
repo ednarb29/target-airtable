@@ -26,10 +26,16 @@ target-airtable takes two types of input:
    - **max_batch_size** (according to your Airtable API rate limits)
    - **endpoint** (optional, default="https://api.airtable.com/v0", the Airtable API endpoint)
    - **typecast** (optional, default=True, tries to cast types according to your Airtable table schema)
+   - **output_schema** (optional, default=False, collects and write the (flattened) stream schema to a file)
+   - **output_schema_path** (optional, default="", the output path to write the schema file)
 2. A stream of Singer-formatted data on stdin
 
 target-airtable replicates the incomming streams from a tap into Airtable tables with the same name as the
 stream. Make sure that these tables and the fields exist in your selected Airtable base.
+
+If you want to make sure how the (flattened) schema has to look like in Airtable, set the option `output_schema` to
+True. A file with the required table fields will be written to `output_schema_path/output_schema.txt` and no
+records will be submitted to Airtable.
 
 
 Create a config file with your configuration data:
@@ -40,7 +46,9 @@ Create a config file with your configuration data:
   "base": "my_base",
   "max_batch_size": 10,
   "endpoint": "https://api.airtable.com/v0",
-  "typecast": true
+  "typecast": true,
+  "output_schema": false,
+  "output_schema_path": ""
 }
 ```
 ```bash
