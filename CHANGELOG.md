@@ -1,5 +1,9 @@
 # Change Log
 
+## v1.2.3
+
+* Included README.md into PyPi package
+
 ## v1.2.2
 
 * Raise an optional exception on a failed insert
