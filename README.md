@@ -28,6 +28,8 @@ target-airtable takes two types of input:
    - **typecast** (optional, default=True, tries to cast types according to your Airtable table schema)
    - **output_schema** (optional, default=False, collects and write the (flattened) stream schema to a file)
    - **output_schema_path** (optional, default="", the output path to write the schema file)
+   - **failed_insert_exception** (optional, default=True, raises an exception for any failed insert instead of error
+     only)
 2. A stream of Singer-formatted data on stdin
 
 target-airtable replicates the incomming streams from a tap into Airtable tables with the same name as the
@@ -48,7 +50,8 @@ Create a config file with your configuration data:
   "endpoint": "https://api.airtable.com/v0",
   "typecast": true,
   "output_schema": false,
-  "output_schema_path": ""
+  "output_schema_path": "",
+  "failed_insert_exception": true
 }
 ```
 ```bash

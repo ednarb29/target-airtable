@@ -72,6 +72,8 @@ def submit_request(config, data, table):
         logger.info(f"Uploaded {len(data)} records into table {table}")
     else:
         logger.error(req.text)
+        if config.get("failed_insert_exception", True):
+            raise Exception(req.text)
 
 
 def persist_lines(config, lines):

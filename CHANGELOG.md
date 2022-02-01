@@ -1,5 +1,9 @@
 # Change Log
 
+## v1.2.2
+
+* Raise an optional exception on a failed insert
+
 ## v1.2.1
 
 * Allow output (flattened) stream schema to file

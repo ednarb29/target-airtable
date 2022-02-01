@@ -4,7 +4,7 @@ import os
 from setuptools.command.install import install
 from setuptools import setup, find_packages
 
-VERSION = "v1.2.1"
+VERSION = "v1.2.2"
 
 
 class VerifyVersionCommand(install):
