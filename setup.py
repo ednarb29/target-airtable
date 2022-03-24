@@ -43,7 +43,7 @@ setup(
     py_modules=["target_airtable"],
     install_requires=[
         "singer-python>=5.0.12",
-        "requests>=2.27.1"
+        "requests>=2.27.1",
         "pyairtable==1.1.0"
     ],
     entry_points="""
