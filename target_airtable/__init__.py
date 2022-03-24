@@ -2,19 +2,14 @@
 
 import argparse
 import collections
-import http.client
 import io
 import json
 import os.path
 import sys
-import threading
-import urllib
-from datetime import datetime
 
-import pkg_resources
-import requests
 import singer
 from jsonschema.validators import Draft4Validator
+from pyairtable import Table
 
 logger = singer.get_logger()
 
@@ -38,52 +33,98 @@ def flatten(d, parent_key='', sep='__'):
     return dict(items)
 
 
-def process_records(config, table, records):
+def process_records(config, table_name, records):
+    table_obj = Table(config.get('api_token'), config.get('base'), table_name)
 
-    batch = []
+    # Perform record creation
+    table_obj.batch_create(records, typecast=config.get("typecast", True))
 
-    for rec in records:
-        batch.append(rec)
-
-        # submit batch if size limit reached
-        if len(batch) >= config.get('max_batch_size'):
-            submit_request(config, batch, table)
-            batch = []
-
-    # submit remaining entries not exceeding the limit
-    if len(batch) > 0:
-        submit_request(config, batch, table)
-
-    logger.info(f"Processed {len(records)} total records for table {table}")
+    logger.info(f"Table {table_name}: {len(records)} total records processed")
 
 
-def submit_request(config, data, table):
-    url = f"{config.get('endpoint', 'https://api.airtable.com/v0')}/{config.get('base')}/{table}"
-    headers = {"Authorization": f"Bearer {config.get('api_token')}"}
+def create_mapping(all_records, unique_field_name, table_records=True):
+    # Create an object mapping of the primary field to the record ID
+    # Scan for duplicate records in the data and raise an exception if found
+    field_value_to_existing_record_id = dict()
+    duplicates = set()
+    for existingRecord in all_records:
+        if table_records:
+            unique_field_value = existingRecord['fields'].get(unique_field_name)
+        else:
+            unique_field_value = existingRecord.get(unique_field_name)
 
-    payload = {
-        "records": data,
-        "typecast": config.get("typecast", True)
-    }
+        if unique_field_value not in field_value_to_existing_record_id:
+            field_value_to_existing_record_id[unique_field_value] = existingRecord['id']
+        else:
+            duplicates.add(unique_field_value)
 
-    req = requests.post(url, json=payload, headers=headers)
+    return field_value_to_existing_record_id, duplicates
 
-    if req.ok:
-        logger.info(f"Uploaded {len(data)} records into table {table}")
-    else:
-        logger.error(req.text)
-        if config.get("failed_insert_exception", True):
-            raise Exception(req.text)
+
+def process_records_upsert(config, table_name, records):
+    unique_field_name = config.get("unique_field_name", "id")
+    table_obj = Table(config.get('api_token'), config.get('base'), table_name)
+
+    # Retrieve all existing records from the base through the Airtable REST API
+    all_existing_records = table_obj.all()
+    logger.info(f"Table {table_name}: {len(all_existing_records)} existing records found")
+
+    # map the table records and check for duplicates
+    upsert_field_value_to_existing_record_id, table_duplicates = \
+        create_mapping(all_existing_records, unique_field_name)
+    if len(table_duplicates) > 0:
+        raise ValueError(f"{len(table_duplicates)} duplicates found in table {table_name}: {table_duplicates}")
+
+    # check the records to be upserted for duplicates
+    record_duplicates = create_mapping(records, unique_field_name, False)[1]
+    if len(record_duplicates) > 0:
+        raise ValueError(f"{len(record_duplicates)} duplicates found in new records to be upserted into table "
+                         f"{table_name}: {record_duplicates}")
+
+    # Create two arrays: one for records to be created, one for records to be updated
+    records_to_create = []
+    records_to_update = []
+
+    # For each input record, check if it exists in the existing records.
+    # If it does, update it. If it does not, create it.
+    logger.info(f"Table {table_name}: {len(records)} input records")
+    for inputRecord in records:
+        record_unique_value = inputRecord.get(unique_field_name)
+        logger.debug(f"Processing record {unique_field_name} === {record_unique_value}")
+
+        existing_record_id_based_on_upsert_field = upsert_field_value_to_existing_record_id.get(
+            record_unique_value)
+
+        # and if the upsert field value matches an existing one...
+        if existing_record_id_based_on_upsert_field:
+            # Add record to list of records to update
+            logger.debug(f"Existing record ID {existing_record_id_based_on_upsert_field} found; "
+                         f"adding to records_to_update")
+            records_to_update.append(
+                dict(id=existing_record_id_based_on_upsert_field, fields=inputRecord))
+        else:
+            # Otherwise, add record to list of records to create
+            logger.debug("No existing records match; adding to records_to_create")
+            records_to_create.append(inputRecord)
+
+    # Read out array sizes
+    logger.info(f"Table {table_name}: {len(records_to_create)} records to create")
+    logger.info(f"Table {table_name}: {len(records_to_update)} records to update")
+
+    typecast = config.get("typecast", True)
+
+    # Perform record creation
+    table_obj.batch_create(records_to_create, typecast=typecast)
+
+    # Perform record updates on existing records
+    table_obj.batch_update(records_to_update, typecast=typecast)
 
 
 def persist_lines(config, lines):
     state = None
     schemas = {}
     key_properties = {}
-    headers = {}
     validators = {}
-
-    now = datetime.now().strftime('%Y%m%dT%H%M%S')
 
     # collect records for batch upload
     records_bulk = dict()
@@ -110,9 +151,6 @@ def persist_lines(config, lines):
             if o['stream'] not in records_bulk:
                 records_bulk[o['stream']] = []
 
-            # Get schema for this record's stream
-            schema = schemas[o['stream']]
-
             # Validate record
             validators[o['stream']].validate(o['record'])
 
@@ -125,9 +163,7 @@ def persist_lines(config, lines):
                     records_schema.add(k)
             else:
                 # capture record
-                records_bulk[o['stream']].append({
-                    "fields": flattened_record
-                })
+                records_bulk[o['stream']].append(flattened_record)
 
             state = None
         elif t == 'STATE':
@@ -153,28 +189,21 @@ def persist_lines(config, lines):
     else:
         # process all collected entries
         for table, records in records_bulk.items():
-            process_records(config, table, records)
+
+            # determine upload method
+            if config.get("upsert", False):
+                # upsert records
+                try:
+                    process_records_upsert(config, table, records)
+                except Exception as exc:
+                    msg = '[Error] Failed to upsert stream {}'.format(table)
+                    logger.error(msg)
+                    logger.exception(str(exc))
+            else:
+                # batch process and insert records
+                process_records(config, table, records)
 
     return state
-
-
-def send_usage_stats():
-    try:
-        version = pkg_resources.get_distribution('target-csv').version
-        conn = http.client.HTTPConnection('collector.singer.io', timeout=10)
-        conn.connect()
-        params = {
-            'e': 'se',
-            'aid': 'singer',
-            'se_ca': 'target-airtable',
-            'se_ac': 'open',
-            'se_la': version,
-        }
-        conn.request('GET', '/i?' + urllib.parse.urlencode(params))
-        response = conn.getresponse()
-        conn.close()
-    except:
-        logger.debug('Collection request failed')
 
 
 def main():
@@ -183,19 +212,13 @@ def main():
     args = parser.parse_args()
 
     if args.config:
-        with open(args.config) as input:
-            config = json.load(input)
+        with open(args.config) as input_conf:
+            config = json.load(input_conf)
     else:
         config = {}
 
-    if not config.get('disable_collection', False):
-        logger.info('Sending version information to singer.io. ' +
-                    'To disable sending anonymous usage data, set ' +
-                    'the config parameter "disable_collection" to true')
-        threading.Thread(target=send_usage_stats).start()
-
-    input = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
-    state = persist_lines(config, input)
+    input_conf = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
+    state = persist_lines(config, input_conf)
 
     emit_state(state)
     logger.debug("Exiting normally")

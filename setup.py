@@ -6,7 +6,7 @@ from pathlib import Path
 from setuptools import setup, find_packages
 from setuptools.command.install import install
 
-VERSION = "v1.2.3"
+VERSION = "v1.3.0"
 
 this_directory = Path(__file__).parent
 long_description = (this_directory / "README.md").read_text()
@@ -44,6 +44,7 @@ setup(
     install_requires=[
         "singer-python>=5.0.12",
         "requests>=2.27.1"
+        "pyairtable==1.1.0"
     ],
     entry_points="""
     [console_scripts]
