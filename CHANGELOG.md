@@ -1,5 +1,9 @@
 # Change Log
 
+## v1.3.0
+
+* Added upsert functionality
+
 ## v1.2.3
 
 * Included README.md into PyPi package
